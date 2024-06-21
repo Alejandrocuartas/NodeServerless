@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  NodeServerlessTest:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: 'NodeServerlessTest'
+      Handler: 'dist/index.handler'
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: 'nodejs18.x'
+      Timeout: 30
+      Code:
+        S3Bucket: ale31jo
+        S3Key: NodeServerlessTest/Test.zip
+
+  LambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'LambdaExecutionPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+
+  ApiGatewayRestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: 'NodeServerlessTest-ApiGateway'
+
+  ApiGatewayResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      ParentId: !GetAtt 
+        - ApiGatewayRestApi
+        - RootResourceId
+      PathPart: '{proxy+}'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+
+  ApiGatewayMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      AuthorizationType: 'NONE'
+      HttpMethod: 'ANY'
+      ResourceId: !Ref 'ApiGatewayResource'
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      Integration:
+        IntegrationHttpMethod: 'POST'
+        Type: 'AWS_PROXY'
+        Uri: !Sub 
+          - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NodeServerlessTest.Arn}/invocations'
+          - NodeServerlessTest: !GetAtt NodeServerlessTest.Arn
+
+  ApiGatewayDeployment:
+    Type: 'AWS::ApiGateway::Deployment'
+    Properties:
+      RestApiId: !Ref 'ApiGatewayRestApi'
+      StageName: 'prod'
+    DependsOn: ApiGatewayMethod
+
+  LambdaApiPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt NodeServerlessTest.Arn
+      Principal: 'apigateway.amazonaws.com'
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/*/{proxy+}'
+
+Outputs:
+  ApiGatewayUrl:
+    Description: 'API Gateway endpoint URL for Prod stage'
+    Value: !Sub 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/{proxy+}'
